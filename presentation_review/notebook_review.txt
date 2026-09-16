@@ -1,0 +1,1971 @@
+
+=== CELL 0 markdown ===
+# Finding the Global Minimum of the 2-D Ackley Function with a Genetic Algorithm
+
+**Course:** CSE 4111 — Machine Learning
+**Assignment:** Optimisation with a Genetic Algorithm (GA)
+
+> ### ► Edit this block before submitting
+>
+> **Submitted to:** _(instructor's name and designation)_
+>
+> **Submitted by:**
+>
+> | Name | Student ID |
+> |---|---|
+> | _name 1_ | _id 1_ |
+> | _name 2_ | _id 2_ |
+> | _name 3_ | _id 3_ |
+> | _name 4_ | _id 4_ |
+> | _name 5_ | _id 5_ |
+>
+> **Date:** _(submission date)_
+
+---
+
+The notebook has three parts, meant to be read in order.
+
+| Part | Sections | Contents |
+|---|---|---|
+| **1 — Concepts** | 1 – 8 | every idea explained *before* any code is written |
+| **2 — Implementation** | 9 – 17 | one tested function per GA operator, then the main loop |
+| **3 — Results** | 18 – 29 | the run, the figures, accuracy, reliability, conclusion |
+
+=== CELL 1 markdown ===
+---
+
+# PART 1 — CONCEPTS
+
+---
+
+## 1. Objective
+
+Find the **global minimum of the 2-D Ackley function** using a **Genetic Algorithm**.
+
+In plain words: there is a bumpy mathematical landscape with one deepest point, and we must find it without
+ever being told where it is — only by asking the landscape "how deep are you here?" at points we choose.
+
+| The GA **may** use | The GA **may not** use |
+|---|---|
+| the search range $-5 \le x_1,x_2 \le 5$ | the location of the answer, $(0,0)$ |
+| the value of $f$ at any point it picks | any derivative or algebraic shortcut |
+
+**What we must report at the end:** best $x_1$, best $x_2$, best $f(x_1,x_2)$, the generation where that best
+was found, and the error against the true optimum.
+
+=== CELL 2 markdown ===
+---
+
+## 2. The Ackley Function
+
+### 2.1 General form for $n$ dimensions
+
+$$
+f(x_1,\ldots,x_n)=
+-a\exp\!\left(-b\sqrt{\frac{1}{n}\sum_{i=1}^{n}x_i^{2}}\right)
+-\exp\!\left(\frac{1}{n}\sum_{i=1}^{n}\cos(c\,x_i)\right)
++a+e,
+\qquad a=20,\; b=0.2,\; c=2\pi .
+$$
+
+### 2.2 Deriving the 2-D version
+
+With $n=2$ the two summations open up:
+
+$$\frac{1}{n}\sum x_i^{2}\;\longrightarrow\;\frac{x_1^{2}+x_2^{2}}{2},
+\qquad
+\frac{1}{n}\sum \cos(c\,x_i)\;\longrightarrow\;\frac{\cos(2\pi x_1)+\cos(2\pi x_2)}{2}.$$
+
+Substituting back gives the function this notebook minimises:
+
+$$
+\boxed{\;
+f(x_1,x_2)=
+-20\exp\!\left(-0.2\sqrt{\tfrac{x_1^{2}+x_2^{2}}{2}}\right)
+-\exp\!\left(\tfrac{\cos(2\pi x_1)+\cos(2\pi x_2)}{2}\right)
++20+e \;}
+$$
+
+### 2.3 The known answer
+
+$$x^{*}=(0,0),\qquad f(x^{*})=0 .$$
+
+Check it by hand: at the origin the square-root term is $0$, so the first part is $-20e^{0}=-20$; both cosines
+are $1$, so the second part is $-e$. Adding $+20+e$ leaves exactly $0$.
+
+We use this **only to measure our error at the end**. The algorithm never sees it.
+
+=== CELL 3 markdown ===
+---
+
+## 3. Why This Function Is Hard
+
+| Piece | Shape it creates |
+|---|---|
+| $-20\exp(-0.2\sqrt{\cdot\,})$ | one wide, smooth funnel sloping towards the origin |
+| $-\exp\!\left(\tfrac{\cos 2\pi x_1+\cos 2\pi x_2}{2}\right)$ | a grid of small ripples laid over that funnel |
+
+The result is **multimodal**: one global minimum at the centre, surrounded by rings of local minima about one
+unit apart, near integer coordinates.
+
+* **Gradient descent** only walks downhill, so it settles in the first ripple it meets and reports a local
+  minimum as the answer.
+* **Grid search** to 6-decimal accuracy over $[-5,5]^2$ would need roughly $10^{14}$ evaluations.
+
+A GA avoids both traps because it keeps a **whole population** spread over the space and keeps injecting
+randomness, so some individuals are always outside the ripple that trapped the others.
+
+=== CELL 4 markdown ===
+---
+
+## 4. What a Genetic Algorithm Is
+
+A GA is a **search and optimisation technique based on Darwin's principle of natural selection**. The whole
+philosophy fits in one line from the lecture slides: **"Select the best, discard the rest."**
+
+Keep a population of candidate answers, score them, let the good ones have more children, mix and randomly
+disturb those children, repeat. Over generations the population drifts towards good regions — the way a
+species adapts to its environment.
+
+| Nature | Computer (this assignment) |
+|---|---|
+| Population | a set of 50 candidate solutions |
+| Individual | one candidate solution — a point in the plane |
+| Chromosome | its encoding, `[x1, x2]` |
+| Gene | one coordinate, `x1` or `x2` |
+| Fitness | quality of the solution (here: how small $f$ is) |
+| Reproduction | crossover |
+| Environmental pressure | selection + elitism |
+
+**Why a GA fits this problem:** it needs no derivative, it searches many ripples at once, and mutation lets a
+candidate escape a ripple it has fallen into. The lecture slides use Ackley's function itself as the standard
+example of a "hard problem" for evolutionary computation.
+
+=== CELL 5 markdown ===
+---
+
+## 5. Chromosome Representation — Value Encoding
+
+The assignment requires the **value (real-valued) encoding technique**.
+
+$$\text{Chromosome}=[\,x_1,\;x_2\,]$$
+
+```
+          gene 1    gene 2
+        +---------+---------+
+        |   x1    |   x2    |
+        +---------+---------+
+```
+
+* Exactly **2 genes**, because the problem has 2 variables.
+* Each gene stores the **actual floating-point number**, never a binary string.
+* Every gene must always satisfy $-5\le x_i\le 5$.
+
+Examples from the assignment sheet: $[-4.0,\;2.5]$ and $[-1.5,\;-1.0]$.
+
+**Why not binary encoding?** It would force us to fix the bit-width in advance, which puts a hard floor under
+the precision we can ever reach — a 20-bit gene over $[-5,5]$ cannot express anything finer than about
+$10^{-5}$. With real values, precision is limited only by the mutation step size, which we can shrink as the
+search progresses.
+
+=== CELL 6 markdown ===
+---
+
+## 6. Objective Value versus Fitness
+
+This is the one place a minimisation problem needs care.
+
+* **Objective value** $f(x_1,x_2)$ — **lower is better**.
+* **Fitness** — what roulette-wheel selection turns into probability, so **higher must be better**.
+
+We cannot feed $f$ straight into the wheel; we must flip its direction first. We use the classic **windowing**
+transform, where $f_{\max}$ and $f_{\min}$ are the worst and best values *in the current population*:
+
+$$F_i=\big(f_{\max}-f_i\big)+\delta,
+\qquad \delta=0.10\,\big(f_{\max}-f_{\min}\big)+\varepsilon,
+\qquad p_i=\frac{F_i}{\sum_j F_j}.$$
+
+* the best chromosome gets the widest window, so the largest slice;
+* the worst would get exactly $0$ and could never be picked, so the offset $\delta$ leaves it a thin but
+  non-zero slice, preserving diversity;
+* $\varepsilon$ keeps everything defined if the population has converged to one value.
+
+A second common transform, $F_i = 1/(1+f_i)$, is also implemented so the two can be compared in §27.
+
+=== CELL 7 markdown ===
+---
+
+## 7. The Genetic Operators
+
+### 7.1 Selection — Roulette Wheel
+
+A wheel is cut into 50 slices, one per chromosome, where **slice size = selection probability $p_i$**. Spin it
+50 times to fill the mating pool. We build the rim as a cumulative array:
+
+```
+p      = [0.05, 0.12, 0.03, 0.20, ...]     selection probabilities
+wheel  = [0.05, 0.17, 0.20, 0.40, ...]     running total  (the rim)
+spin   =  0.18                             one random number in [0, 1)
+result =  index 3, because 0.17 <= 0.18 < 0.20
+```
+
+A good chromosome owns a large slice and is picked often; a weak one still owns a thin slice, so diversity
+survives. This distribution is exactly what a **pie chart** draws, which is why the assignment asks for one.
+
+### 7.2 Crossover — One Point, $P_c = 80\%$
+
+With two genes there is exactly **one legal cut: between $x_1$ and $x_2$**.
+
+```
+Parent 1 :  [ a | b ]              Child 1 : [ a | d ]
+Parent 2 :  [ c | d ]      ==>     Child 2 : [ c | b ]
+                ^ the single cut point
+```
+
+So crossover here means *take the $x_1$ of one parent and the $x_2$ of the other*. It cannot invent a new
+number — it only **re-combines coordinates the population already has**. That is its job: if one parent holds a
+good $x_1$ and another holds a good $x_2$, crossover puts them in one child in a single step. With probability
+$1-P_c=20\%$ no cut is made and the children are copies of the parents.
+
+### 7.3 Mutation — $P_m = 5\%$ per gene
+
+Mutation is the only operator that can **create a value the population has never held**. We walk the chromosome
+gene by gene (*array traversal*) and, for each gene independently, draw a random number; if it is below $0.05$
+that gene is changed, then **clipped** back into $[-5,5]$ so no chromosome can leave the search space.
+
+| Mode | Rule | Effect |
+|---|---|---|
+| **Gaussian** (default) | $x_i \leftarrow x_i + \mathcal{N}(0,\sigma^{2})$ | a small nudge — good for fine tuning |
+| **Uniform** | $x_i \leftarrow \mathcal{U}(-5,5)$ | a completely fresh value — a big jump |
+
+Example from the assignment sheet: $[-1.5,-1.0]$ may mutate to $[-0.5,-1.0]$ — gene 1 changed, gene 2 untouched.
+
+### 7.4 Elitism — 1 individual
+
+Crossover and mutation are random, so the best chromosome can easily be destroyed. Elitism copies it into the
+next generation untouched. The consequence matters: **the best-so-far curve can never go up.**
+
+=== CELL 8 markdown ===
+---
+
+## 8. Choosing the Mutation Step Size
+
+The mutation *probability* is fixed at 5% by the assignment. The *step size* $\sigma$ is ours to choose, and it
+turns out to be the single most important decision in the whole implementation, so it gets its own section.
+
+### 8.1 Why a fixed timetable is not good enough
+
+The obvious approach is a schedule on the clock: start at $\sigma=1$ and shrink geometrically to $10^{-8}$ by
+generation 100. Large steps early to explore, tiny steps late to polish. We built that first, and it worked —
+but it has a flaw that only shows up when you run it many times.
+
+**The step size shrinks whether or not the search is making progress.** If a run is still stuck in the wrong
+ripple at generation 40, $\sigma$ has already fallen to about $10^{-3}$ — far too small to jump the distance of
+roughly 1 unit needed to escape. The run is then locked into a local minimum for the rest of its life. Over 40
+independent runs this happened to one of them, which ended at $f \approx 2.58$ instead of $\approx 0$.
+
+### 8.2 The fix: tie the step size to the current solution quality
+
+Instead of asking *"how late is it?"*, ask *"how far away are we still?"*:
+
+$$\boxed{\;\sigma \;=\; \mathrm{clip}\!\left(\tfrac{1}{4}\,f_{\text{best}},\; \sigma_{\min},\; \sigma_{\max}\right)\;}$$
+
+**Where the $\tfrac14$ comes from.** Near the origin the Ackley function is almost a straight cone. Writing
+$s=\sqrt{(x_1^2+x_2^2)/2}$ and expanding both exponentials for small $s$:
+
+$$-20e^{-0.2s}\approx-20+4s,
+\qquad -e^{\,1-2\pi^2s^2}\approx-e+2e\pi^2s^2,
+\qquad\text{so}\qquad f \approx 4s + 2e\pi^2 s^2 \approx 4s .$$
+
+So $s \approx f/4$: dividing the current best value by 4 gives, near the optimum, **the distance that still has
+to be covered**. The mutation step is therefore always about the size of the remaining gap.
+
+### 8.3 What this buys us
+
+| Situation | $f_{\text{best}}$ | $\sigma$ | Behaviour |
+|---|---:|---:|---|
+| random start | $\approx 5$ | $\approx 1.2$ | large steps, explores the whole square |
+| stuck in a ripple | $\approx 2.6$ | $\approx 0.65$ | **still large enough to jump out** |
+| inside the central dip | $\approx 10^{-3}$ | $\approx 10^{-4}$ | fine tuning |
+| nearly solved | $\approx 10^{-9}$ | $\approx 10^{-10}$ | polishing the last decimals |
+
+The rule is **self-correcting**: a run that is not improving keeps its steps large and keeps trying to escape,
+while a run that is doing well automatically slows down and polishes. Section 25 measures the difference —
+the trapped run disappears and the final accuracy improves by about three orders of magnitude.
+
+=== CELL 9 markdown ===
+---
+
+## 9. The GA Sequence, Diversity, and Stopping
+
+### 9.1 The ten steps
+
+| Step | Action |
+|---|---|
+| 1 | **Initialise** 50 random chromosomes $[x_1,x_2]$ inside $[-5,5]^{2}$ |
+| 2 | **Evaluate** the Ackley value of every chromosome |
+| 3 | **Sort** from best (smallest $f$) to worst |
+| 4 | **Preserve the elite** — the single best chromosome |
+| 5 | **Reproduce** — selection, crossover, mutation |
+| 6 | **Roulette probabilities** — compute $p_i$ from fitness (drawn as a pie chart) |
+| 7 | **Repair** — clip every new gene back into $[-5,5]$ |
+| 8 | **Re-evaluate** — the Ackley value of each new offspring |
+| 9 | **Form the next generation** — keep the best 50 candidates, elite guaranteed |
+| 10 | **Repeat** until a stopping rule fires |
+
+At step 9 the available candidates are the **50 parents plus the 50 offspring = 100 chromosomes**. We sort all
+100 and keep the best 50. This holds the population size constant, guarantees a generation is never worse than
+the last, and automatically preserves the elite.
+
+### 9.2 One extra rule: cap duplicate copies
+
+Truncating 100 candidates down to 50 is very strong pressure. With only 5% mutation most children are exact
+copies of their parents, so in our first version the duplicates took over: by generation 11 all 50 chromosomes
+were **literally the same point**. The GA had quietly stopped being a population method and become
+elitism-plus-mutation on a single point — and a population of clones cannot explore its way out of anything.
+
+The fix is one line in the survivor step:
+
+> **No single chromosome may occupy more than 15 of the 50 seats.**
+
+When a candidate would exceed its quota it is skipped and the seat goes to the next distinct candidate. If the
+pool runs out of distinct candidates, the remaining seats are filled with fresh random chromosomes. This keeps
+roughly 13 distinct chromosomes alive throughout the run instead of 2, at no cost in accuracy — §25 shows the
+measurement.
+
+### 9.3 Flow of one generation
+
+```
+        +-------------------------------+
+        |  Initialise 50 chromosomes    |
+        +---------------+---------------+
+                        v
+        +-------------------------------+
+        |  Evaluate  f(x1,x2)   (50x)   |  <--------------------+
+        +---------------+---------------+                       |
+                        v                                       |
+        +-------------------------------+                       |
+        |  Sort  +  remember the elite  |                       |
+        +---------------+---------------+                       |
+                        v                                       |
+                 stop?  --- yes --->  report the best solution  |
+                        | no                                    |
+                        v                                       |
+        +------------------------------------+                  |
+        |  sigma = best value / 4            |                  |
+        |  fitness  ->  probabilities        |                  |
+        |  roulette wheel   (50 spins)       |                  |
+        |  1-point crossover  (Pc = 0.8)     |                  |
+        |  mutation per gene  (Pm = 0.05)    |                  |
+        |  clip into [-5, 5]                 |                  |
+        +---------------+--------------------+                  |
+                        v                                       |
+        +-------------------------------------------------+     |
+        | 100 candidates -> best 50, elite kept,          |-----+
+        | no chromosome above 15 copies                   |
+        +-------------------------------------------------+
+```
+
+### 9.4 Stopping criteria
+
+Stop when **either** condition is met:
+
+1. **100 generations** are complete, or
+2. the improvement between consecutive generations stays below **$\text{tol}=10^{-10}$**.
+
+The assignment gives no numeric tolerance, so we chose one. A single flat generation is normal in a GA —
+mutation simply found nothing that round — so stopping at the first one would end the run far too early. We
+require the improvement to stay below the tolerance for **20 consecutive generations** before declaring
+convergence.
+
+### 9.5 Settings used
+
+| Parameter | Value | Source |
+|---|---:|---|
+| Population size | 50 | assignment |
+| Maximum generations | 100 | assignment |
+| Crossover probability $P_c$ | 0.80 | assignment |
+| Mutation probability $P_m$ | 0.05 per gene | assignment |
+| Elitism | 1 | assignment |
+| Encoding | real value, 2 genes | assignment |
+| Selection | roulette wheel | assignment |
+| Crossover | 1 point | assignment |
+| Mutation | Gaussian, then clipped | assignment |
+| Search range | $[-5,5]$ | assignment |
+| Survivor selection | best 50 of parents + offspring | assignment, step 9 |
+| Mutation step $\sigma$ | $f_{\text{best}}/4$ | our choice, §8 |
+| Maximum copies of one chromosome | 15 of 50 | our choice, §9.2 |
+| Convergence tolerance | $10^{-10}$ held for 20 generations | our choice, §9.4 |
+| Random seed | 7 | our choice, for reproducibility |
+
+=== CELL 10 markdown ===
+---
+
+# PART 2 — IMPLEMENTATION
+
+Every operator gets its own small function, demonstrated on a tiny example straight afterwards, so each piece
+can be checked before the full loop is assembled.
+
+---
+
+## 10. Setup and Configuration
+
+All tunable numbers live in one `GASettings` object, so the experiments in §27 can change a single value
+without touching any algorithm code.
+
+=== CELL 11 code ===
+import math
+from dataclasses import dataclass, replace
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import cm
+
+np.set_printoptions(precision=10, suppress=False, linewidth=110)
+plt.rcParams.update({
+    "figure.dpi": 110,
+    "font.size": 10,
+    "axes.grid": True,
+    "grid.alpha": 0.25,
+    "axes.axisbelow": True,
+})
+
+print("numpy      :", np.__version__)
+print("matplotlib :", __import__("matplotlib").__version__)
+OUTPUT:
+numpy      : 2.4.2
+matplotlib : 3.10.8
+
+
+=== CELL 12 code ===
+@dataclass
+class GASettings:
+    """Every knob of the genetic algorithm, in one place."""
+
+    # --- fixed by the assignment -------------------------------------
+    population_size: int = 50        # 50 chromosomes per generation
+    n_genes: int = 2                 # chromosome = [x1, x2]
+    lower: float = -5.0              # lower bound of every gene
+    upper: float = 5.0               # upper bound of every gene
+    max_generations: int = 100       # stopping criterion 1
+    pc: float = 0.80                 # crossover probability
+    pm: float = 0.05                 # mutation probability, per gene
+    n_elites: int = 1                # elitism
+
+    # --- our own implementation choices ------------------------------
+    fitness_kind: str = "windowing"  # "windowing" or "inverse"          (S6)
+    mutation_kind: str = "gaussian"  # "gaussian" or "uniform"           (S7.3)
+    sigma_kind: str = "adaptive"     # "adaptive", "schedule" or "fixed" (S8)
+    sigma_scale: float = 0.25        # adaptive: sigma = scale * best value
+    sigma_min: float = 1e-12         # adaptive: floor
+    sigma_max: float = 2.0           # adaptive: ceiling
+    sigma_start: float = 1.0         # used by "schedule" and "fixed"
+    sigma_end: float = 1e-8          # used by "schedule"
+    max_copies: int = 15             # duplicate cap, 0 = unlimited      (S9.2)
+    survivor_kind: str = "parents_plus_offspring"   # or "offspring_only"
+    tolerance: float = 1e-10         # stopping criterion 2
+    patience: int = 20               # ... held for this many generations
+    seed: int = 7                    # reproducibility
+
+
+SETTINGS = GASettings()
+for field, value in vars(SETTINGS).items():
+    print(f"{field:18s} = {value}")
+OUTPUT:
+population_size    = 50
+n_genes            = 2
+lower              = -5.0
+upper              = 5.0
+max_generations    = 100
+pc                 = 0.8
+pm                 = 0.05
+n_elites           = 1
+fitness_kind       = windowing
+mutation_kind      = gaussian
+sigma_kind         = adaptive
+sigma_scale        = 0.25
+sigma_min          = 1e-12
+sigma_max          = 2.0
+sigma_start        = 1.0
+sigma_end          = 1e-08
+max_copies         = 15
+survivor_kind      = parents_plus_offspring
+tolerance          = 1e-10
+patience           = 20
+seed               = 7
+
+
+=== CELL 13 markdown ===
+---
+
+## 11. Step 2 — The Objective Function
+
+`ackley` accepts either a single chromosome of shape `(2,)` or a whole population of shape `(50, 2)`: the
+summations always run along the last axis, which is the gene axis.
+
+=== CELL 14 code ===
+def ackley(x, a=20.0, b=0.2, c=2.0 * math.pi):
+    """Ackley objective value. Smaller is better.
+
+    Parameters
+    ----------
+    x : array of shape (n_genes,) or (n_individuals, n_genes)
+    """
+    x = np.asarray(x, dtype=float)
+    n = x.shape[-1]
+
+    mean_of_squares = np.sum(x ** 2, axis=-1) / n
+    mean_of_cosines = np.sum(np.cos(c * x), axis=-1) / n
+
+    exponential_part = -a * np.exp(-b * np.sqrt(mean_of_squares))
+    cosine_part = -np.exp(mean_of_cosines)
+
+    return exponential_part + cosine_part + a + math.e
+
+
+GLOBAL_OPTIMUM = np.array([0.0, 0.0])
+
+print("f(0, 0)           =", ackley(GLOBAL_OPTIMUM))
+print("f(-4.0,  2.5)     =", ackley([-4.0, 2.5]))
+print("f(-1.5, -1.0)     =", ackley([-1.5, -1.0]))
+print("f on a population :", ackley(np.array([[0.0, 0.0], [1.0, 0.0], [3.0, -2.0]])))
+OUTPUT:
+f(0, 0)           = 4.440892098500626e-16
+f(-4.0,  2.5)     = 11.454215696941548
+f(-1.5, -1.0)     = 6.219192055519926
+f on a population : [4.4408920985e-16 2.6375310921e+00 7.9889108105e+00]
+
+
+=== CELL 15 markdown ===
+`f(0, 0)` comes out as `0.0` up to floating-point noise, which confirms the formula. The two example
+chromosomes from the assignment sheet are ordinary mediocre candidates — what a random start looks like.
+`f(1.0, 0.0) ≈ 2.64` is a **local minimum** on the first ring: every direction around it goes up, yet its value
+is nowhere near zero. That is the trap the GA has to avoid.
+
+=== CELL 16 code ===
+grid = np.linspace(SETTINGS.lower, SETTINGS.upper, 400)
+X1, X2 = np.meshgrid(grid, grid)
+Z = ackley(np.stack([X1, X2], axis=-1))
+
+fig = plt.figure(figsize=(12.5, 5.0))
+
+ax = fig.add_subplot(1, 2, 1, projection="3d")
+ax.plot_surface(X1[::3, ::3], X2[::3, ::3], Z[::3, ::3],
+                cmap=cm.viridis, linewidth=0, antialiased=True, alpha=0.95)
+ax.scatter([0], [0], [0], color="red", marker="*", s=200, depthshade=False)
+ax.set_xlabel("$x_1$"); ax.set_ylabel("$x_2$"); ax.set_zlabel("$f$")
+ax.set_title("3-D surface: one funnel, many ripples")
+ax.view_init(elev=40, azim=-58)
+
+ax = fig.add_subplot(1, 2, 2)
+filled = ax.contourf(X1, X2, Z, levels=45, cmap="viridis")
+fig.colorbar(filled, ax=ax, label="Ackley value")
+ax.scatter(0, 0, marker="*", s=230, color="red",
+           edgecolor="black", zorder=5, label="global minimum $(0,0)$")
+ax.set_xlabel("$x_1$"); ax.set_ylabel("$x_2$")
+ax.set_title("Contour map: dark rings are local minima")
+ax.legend(loc="upper right")
+ax.set_aspect("equal")
+
+plt.tight_layout()
+plt.show()
+OUTPUT:
+<Figure size 1375x550 with 3 Axes>
+
+=== CELL 17 code ===
+line = np.linspace(-5, 5, 2000)
+slice_values = ackley(np.stack([line, np.zeros_like(line)], axis=-1))
+
+fig, ax = plt.subplots(figsize=(10, 3.6))
+ax.plot(line, slice_values, color="#2f5d9e", linewidth=1.8)
+ax.scatter([0], [0], color="red", marker="*", s=170, zorder=5,
+           label="global minimum  $f(0,0)=0$")
+ax.set_xlabel("$x_1$   (with $x_2$ held at 0)")
+ax.set_ylabel("$f(x_1, 0)$")
+ax.set_title("A single slice through the surface: every dip is a local minimum")
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+print("Local minima sit near integer x1 values:")
+print("f(0,0) = %.6f   f(1,0) = %.6f   f(2,0) = %.6f   f(3,0) = %.6f"
+      % (ackley([0, 0]), ackley([1, 0]), ackley([2, 0]), ackley([3, 0])))
+OUTPUT:
+<Figure size 1100x396 with 1 Axes>
+OUTPUT:
+Local minima sit near integer x1 values:
+f(0,0) = 0.000000   f(1,0) = 2.637531   f(2,0) = 4.927234   f(3,0) = 6.914978
+
+
+=== CELL 18 markdown ===
+---
+
+## 12. Step 1 — Initialising the Population
+
+50 chromosomes, each gene drawn uniformly from $[-5,5]$. Uniform is right here because we have no prior idea
+where the optimum is, so no region deserves a head start.
+
+=== CELL 19 code ===
+def create_population(rng, settings):
+    """Step 1 - a (population_size, n_genes) array of random chromosomes."""
+    return rng.uniform(settings.lower, settings.upper,
+                       size=(settings.population_size, settings.n_genes))
+
+
+demo_rng = np.random.default_rng(SETTINGS.seed)
+initial_population = create_population(demo_rng, SETTINGS)
+initial_values = ackley(initial_population)
+
+print("population shape :", initial_population.shape)
+print("gene range       : [%.4f, %.4f]" % (initial_population.min(), initial_population.max()))
+print()
+print("First five chromosomes")
+print("  #        x1            x2          f(x1,x2)")
+for i in range(5):
+    print("  %d   %+10.6f   %+10.6f   %10.6f"
+          % (i, initial_population[i, 0], initial_population[i, 1], initial_values[i]))
+print()
+print("generation 0 :  best %.6f   mean %.6f   worst %.6f"
+      % (initial_values.min(), initial_values.mean(), initial_values.max()))
+OUTPUT:
+population shape : (50, 2)
+gene range       : [-4.9627, 4.9550]
+
+First five chromosomes
+  #        x1            x2          f(x1,x2)
+  0    +1.250955    +3.972138     9.988756
+  1    +2.756857    -2.747928    10.169675
+  2    -1.998337    +3.735534    10.156918
+  3    -4.947347    +3.212284    12.229430
+  4    +2.970694    -0.320650     8.292024
+
+generation 0 :  best 3.188874   mean 9.755876   worst 13.385171
+
+
+=== CELL 20 code ===
+fig, ax = plt.subplots(figsize=(6.4, 5.6))
+ax.contourf(X1, X2, Z, levels=45, cmap="viridis", alpha=0.85)
+ax.scatter(initial_population[:, 0], initial_population[:, 1],
+           s=42, color="white", edgecolor="black", linewidth=0.7, label="50 chromosomes")
+best0 = int(np.argmin(initial_values))
+ax.scatter(*initial_population[best0], s=150, color="gold", edgecolor="black",
+           marker="D", zorder=5, label="best of generation 0")
+ax.scatter(0, 0, marker="*", s=230, color="red", edgecolor="black", zorder=6,
+           label="true optimum")
+ax.set_xlabel("$x_1$"); ax.set_ylabel("$x_2$"); ax.set_aspect("equal")
+ax.set_title("Generation 0 — scattered blindly across the search space")
+ax.legend(loc="upper right", fontsize=8)
+plt.tight_layout()
+plt.show()
+OUTPUT:
+<Figure size 704x616 with 1 Axes>
+
+=== CELL 21 markdown ===
+---
+
+## 13. Steps 3 and 6 — Fitness and Roulette-Wheel Probabilities
+
+Two small functions implement §6: `to_fitness` flips the direction of the objective value, and
+`selection_probabilities` normalises so the 50 numbers sum to 1. The `total <= 0` guard covers the corner case
+where the whole population has collapsed onto one value; then everyone gets an equal slice.
+
+=== CELL 22 code ===
+def to_fitness(values, kind="windowing"):
+    """Turn objective values (lower is better) into fitness (higher is better)."""
+    values = np.asarray(values, dtype=float)
+
+    if kind == "inverse":
+        return 1.0 / (1.0 + values)
+
+    if kind == "windowing":
+        worst, best = values.max(), values.min()
+        offset = 0.10 * (worst - best) + 1e-12   # keeps the worst slice non-zero
+        return (worst - values) + offset
+
+    raise ValueError(f"unknown fitness kind: {kind!r}")
+
+
+def selection_probabilities(values, kind="windowing"):
+    """Step 6 - the slice of the roulette wheel owned by each chromosome."""
+    fitness = to_fitness(values, kind)
+    total = fitness.sum()
+    if total <= 0:
+        return np.full(len(fitness), 1.0 / len(fitness))
+    return fitness / total
+
+
+tiny_values = np.array([10.0, 3.0, 0.8, 8.0])          # four made-up chromosomes
+print("objective values :", tiny_values)
+print("windowing fitness:", np.round(to_fitness(tiny_values, "windowing"), 4))
+print("inverse  fitness :", np.round(to_fitness(tiny_values, "inverse"), 4))
+print("probabilities    :", np.round(selection_probabilities(tiny_values), 4))
+print("sum              :", selection_probabilities(tiny_values).sum())
+OUTPUT:
+objective values : [10.   3.   0.8  8. ]
+windowing fitness: [ 0.92  7.92 10.12  2.92]
+inverse  fitness : [0.0909 0.25   0.5556 0.1111]
+probabilities    : [0.042  0.362  0.4625 0.1335]
+sum              : 1.0
+
+
+=== CELL 23 markdown ===
+Both transforms rank the four the same way — the one with $f=0.8$ is best — but windowing spreads the
+probabilities more widely, giving the wheel stronger selection pressure.
+
+`roulette_wheel` below builds the cumulative rim once and "spins" it `k` times with `np.searchsorted`. Setting
+`wheel[-1] = 1.0` removes floating-point rounding at the end of the rim, so a spin can never fall off.
+
+=== CELL 24 code ===
+def roulette_wheel(probabilities, rng, k):
+    """Spin a fitness-proportional wheel k times; return the k chosen indices."""
+    wheel = np.cumsum(probabilities)
+    wheel[-1] = 1.0                      # guard against floating-point drift
+    spins = rng.random(k)
+    return np.searchsorted(wheel, spins, side="right")
+
+
+check_rng = np.random.default_rng(0)
+probabilities = selection_probabilities(tiny_values)
+picked = roulette_wheel(probabilities, check_rng, 20000)
+observed = np.bincount(picked, minlength=4) / 20000
+
+print("chromosome                :", [0, 1, 2, 3])
+print("wanted probability        :", np.round(probabilities, 4))
+print("observed after 20000 spins:", np.round(observed, 4))
+print()
+print("The observed shares match the wanted probabilities, so the wheel is fair.")
+OUTPUT:
+chromosome                : [0, 1, 2, 3]
+wanted probability        : [0.042  0.362  0.4625 0.1335]
+observed after 20000 spins: [0.0408 0.3556 0.4728 0.1308]
+
+The observed shares match the wanted probabilities, so the wheel is fair.
+
+
+=== CELL 25 markdown ===
+### The required pie chart
+
+Fifty slices would be unreadable, so the 10 largest are labelled individually and the remaining 40 are merged
+into one grey slice, which still shows how much probability the weak half keeps. The table underneath follows
+the layout of the lecture-slide example: objective value, fitness, percentage of the wheel, and expected number
+of picks in 50 spins.
+
+=== CELL 26 code ===
+def plot_roulette_pie(values, ax=None, n_labelled=10, title=None):
+    """Pie chart of roulette-wheel selection probabilities."""
+    probabilities = selection_probabilities(values, SETTINGS.fitness_kind)
+    order = np.argsort(probabilities)[::-1]
+    top, rest = order[:n_labelled], order[n_labelled:]
+
+    sizes = list(probabilities[top])
+    labels = [f"#{i}\nf={values[i]:.2f}" for i in top]
+    colours = list(cm.viridis(np.linspace(0.15, 0.9, len(top))))
+
+    if len(rest) > 0:
+        sizes.append(probabilities[rest].sum())
+        labels.append(f"other {len(rest)}\n({probabilities[rest].sum():.0%})")
+        colours.append("0.82")
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7.2, 7.2))
+
+    ax.pie(sizes, labels=labels, colors=colours, startangle=90, counterclock=False,
+           autopct=lambda pct: f"{pct:.1f}%" if pct >= 3 else "",
+           textprops={"fontsize": 8}, wedgeprops={"edgecolor": "white", "linewidth": 1.1})
+    ax.set_title(title or "Roulette wheel — selection probability of each chromosome")
+    return probabilities
+
+
+fig, ax = plt.subplots(figsize=(7.4, 7.4))
+probabilities0 = plot_roulette_pie(
+    initial_values, ax=ax,
+    title="Roulette wheel for generation 0\n(10 largest slices labelled, remaining 40 merged)")
+plt.tight_layout()
+plt.show()
+OUTPUT:
+<Figure size 814x814 with 1 Axes>
+
+=== CELL 27 code ===
+fitness0 = to_fitness(initial_values, SETTINGS.fitness_kind)
+ranking = np.argsort(initial_values)
+
+print("Roulette-wheel table for generation 0 (best 8 chromosomes)")
+print()
+print(" rank   #        x1           x2        f(x1,x2)     fitness    % of wheel   expected picks")
+print(" " + "-" * 94)
+for rank, i in enumerate(ranking[:8], start=1):
+    print(" %4d  %2d   %+9.5f   %+9.5f   %9.5f   %9.5f   %8.2f %%   %10.2f"
+          % (rank, i, initial_population[i, 0], initial_population[i, 1],
+             initial_values[i], fitness0[i], 100 * probabilities0[i],
+             SETTINGS.population_size * probabilities0[i]))
+print(" " + "-" * 94)
+print(" %-58s %9.5f   %8.2f %%   %10.2f"
+      % ("whole population (50 chromosomes)", fitness0.sum(), 100.0, SETTINGS.population_size))
+print()
+worst = ranking[-1]
+print("The worst chromosome #%d has f = %.5f and owns only %.2f %% of the wheel —"
+      % (worst, initial_values[worst], 100 * probabilities0[worst]))
+print("unlikely, but not impossible, to become a parent.")
+OUTPUT:
+Roulette-wheel table for generation 0 (best 8 chromosomes)
+
+ rank   #        x1           x2        f(x1,x2)     fitness    % of wheel   expected picks
+ ----------------------------------------------------------------------------------------------
+    1   7    +0.04548    +0.53497     3.18887    11.21593       4.83 %         2.41
+    2  46    -0.32270    +0.47635     3.79203    10.61277       4.57 %         2.28
+    3  14    +1.29226    +0.14118     4.87413     9.53067       4.10 %         2.05
+    4  43    +0.69694    -1.23712     5.47281     8.93199       3.84 %         1.92
+    5  25    -1.38736    +0.98184     5.86754     8.53726       3.67 %         1.84
+    6  30    +1.05056    +1.37997     5.95158     8.45322       3.64 %         1.82
+    7  35    +1.71765    -1.99580     7.44633     6.95847       2.99 %         1.50
+    8  15    -0.03127    -2.52485     7.72769     6.67711       2.87 %         1.44
+ ----------------------------------------------------------------------------------------------
+ whole population (50 chromosomes)                          232.44621     100.00 %        50.00
+
+The worst chromosome #45 has f = 13.38517 and owns only 0.44 % of the wheel —
+unlikely, but not impossible, to become a parent.
+
+
+=== CELL 28 markdown ===
+---
+
+## 14. Step 5a — One-Point Crossover
+
+With two genes the cut `rng.integers(1, n_genes)` can only return `1`, the cut between $x_1$ and $x_2$. The
+code is still written for a general chromosome length, so it would work unchanged on a 5-D or 10-D problem.
+
+=== CELL 29 code ===
+def one_point_crossover(parent_1, parent_2, rng, settings):
+    """Step 5a - with probability pc, swap the tails of two parents."""
+    if rng.random() > settings.pc:
+        return parent_1.copy(), parent_2.copy()          # the 20% no-crossover case
+
+    cut = int(rng.integers(1, len(parent_1)))             # always 1 when n_genes == 2
+    child_1 = np.concatenate([parent_1[:cut], parent_2[cut:]])
+    child_2 = np.concatenate([parent_2[:cut], parent_1[cut:]])
+    return child_1, child_2
+
+
+demo_rng = np.random.default_rng(3)
+mother, father = np.array([-4.0, 2.5]), np.array([-1.5, -1.0])
+kid_1, kid_2 = one_point_crossover(mother, father, demo_rng, replace(SETTINGS, pc=1.0))
+
+print("parent 1 :", mother, "   f = %.5f" % ackley(mother))
+print("parent 2 :", father, "   f = %.5f" % ackley(father))
+print("            cut between gene 1 and gene 2")
+print("child  1 :", kid_1, "   f = %.5f" % ackley(kid_1))
+print("child  2 :", kid_2, "   f = %.5f" % ackley(kid_2))
+print()
+print("Child 1 keeps x1 from parent 1 and x2 from parent 2, and vice versa.")
+print("No new number was invented: the four coordinates were only re-paired.")
+OUTPUT:
+parent 1 : [-4.   2.5]    f = 11.45422
+parent 2 : [-1.5 -1. ]    f = 6.21919
+            cut between gene 1 and gene 2
+child  1 : [-4. -1.]    f = 8.83664
+child  2 : [-1.5  2.5]    f = 9.10803
+
+Child 1 keeps x1 from parent 1 and x2 from parent 2, and vice versa.
+No new number was invented: the four coordinates were only re-paired.
+
+
+=== CELL 30 markdown ===
+---
+
+## 15. Steps 5b and 7 — Mutation, Step Size, and Boundary Repair
+
+`mutation_sigma` implements §8. The default `"adaptive"` mode divides the current best objective value by 4;
+the other two modes exist only so §27 can measure how much the adaptive rule actually buys.
+
+The loop `for gene in range(len(mutated))` is the **array traversal** the assignment describes: each gene is
+visited, gets its own random draw, and is changed only if that draw falls below $P_m$. The gene is clipped
+immediately afterwards, which is Step 7.
+
+=== CELL 31 code ===
+def mutation_sigma(best_value, generation, settings):
+    """Step size for Gaussian mutation. See section 8."""
+    if settings.sigma_kind == "fixed":
+        return settings.sigma_start
+
+    if settings.sigma_kind == "schedule":            # the old clock-based version
+        progress = generation / max(settings.max_generations, 1)
+        return settings.sigma_start * (settings.sigma_end / settings.sigma_start) ** progress
+
+    # "adaptive" - tie the step to how far we still are from the optimum
+    sigma = settings.sigma_scale * best_value
+    return min(max(sigma, settings.sigma_min), settings.sigma_max)
+
+
+def mutate(chromosome, rng, settings, sigma):
+    """Steps 5b and 7 - walk the genes, mutate with probability pm, then repair."""
+    mutated = chromosome.copy()
+
+    for gene in range(len(mutated)):                     # array traversal
+        if rng.random() < settings.pm:
+            if settings.mutation_kind == "uniform":
+                mutated[gene] = rng.uniform(settings.lower, settings.upper)
+            else:                                        # gaussian
+                mutated[gene] += rng.normal(0.0, sigma)
+
+            # Step 7 - the gene must stay inside the search space.
+            mutated[gene] = min(max(mutated[gene], settings.lower), settings.upper)
+
+    return mutated
+
+
+demo_rng = np.random.default_rng(11)
+forced = replace(SETTINGS, pm=1.0)                       # force a mutation so we can see it
+print("before mutation :", np.array([-1.5, -1.0]))
+print("after  mutation :", np.round(mutate(np.array([-1.5, -1.0]), demo_rng, forced, 1.0), 4))
+print()
+
+print("Adaptive step size: sigma = best_value / 4")
+for best in (5.0, 2.58, 1e-2, 1e-6, 1e-10):
+    print("   best f = %-9.3g ->  sigma = %.3e" % (best, mutation_sigma(best, 0, SETTINGS)))
+print("   Even a run stuck at f = 2.58 keeps sigma = 0.65, large enough to jump to another ripple.")
+print()
+
+edge = np.array([4.98, -4.99])
+print("Boundary repair - a chromosome at the edge, mutated 6 times with a large step:")
+for s in range(6):
+    print("  ", np.round(mutate(edge, np.random.default_rng(s), forced, 1.5), 4))
+print("Every gene is still inside [-5, 5].")
+OUTPUT:
+before mutation : [-1.5 -1. ]
+after  mutation : [-0.1403 -1.5103]
+
+Adaptive step size: sigma = best_value / 4
+   best f = 5         ->  sigma = 1.250e+00
+   best f = 2.58      ->  sigma = 6.450e-01
+   best f = 0.01      ->  sigma = 2.500e-03
+   best f = 1e-06     ->  sigma = 2.500e-07
+   best f = 1e-10     ->  sigma = 2.500e-11
+   Even a run stuck at f = 2.58 keeps sigma = 0.65, large enough to jump to another ripple.
+
+Boundary repair - a chromosome at the edge, mutated 6 times with a large step:
+   [ 4.7818 -4.8326]
+   [ 5. -5.]
+   [ 4.1959 -5.    ]
+   [ 1.1465 -5.    ]
+   [ 4.7179 -4.0013]
+   [ 2.9935 -4.3593]
+Every gene is still inside [-5, 5].
+
+
+=== CELL 32 markdown ===
+---
+
+## 16. Steps 5 to 8 — Producing One Batch of Offspring
+
+`make_offspring` chains the three reproduction operators: turn objective values into selection probabilities,
+spin the wheel to fill a mating pool, then walk the pool two parents at a time applying crossover, mutation and
+clipping. It produces 50 children, which compete against their 50 parents in the next section.
+
+=== CELL 33 code ===
+def make_offspring(population, values, rng, settings, sigma):
+    """Steps 5 to 7 - selection, crossover, mutation, repair."""
+    probabilities = selection_probabilities(values, settings.fitness_kind)
+
+    n_children = settings.population_size
+    n_parents = n_children if n_children % 2 == 0 else n_children + 1
+    mating_pool = population[roulette_wheel(probabilities, rng, n_parents)]
+
+    children = []
+    for i in range(0, n_parents, 2):
+        child_1, child_2 = one_point_crossover(mating_pool[i], mating_pool[i + 1], rng, settings)
+        children.append(mutate(child_1, rng, settings, sigma))
+        children.append(mutate(child_2, rng, settings, sigma))
+
+    return np.asarray(children[:n_children])
+
+
+demo_rng = np.random.default_rng(SETTINGS.seed)
+demo_sigma = mutation_sigma(initial_values.min(), 0, SETTINGS)
+demo_children = make_offspring(initial_population, initial_values, demo_rng, SETTINGS, demo_sigma)
+demo_child_values = ackley(demo_children)                # Step 8 - re-evaluate
+
+print("sigma used          : %.4f   (best value %.4f / 4)" % (demo_sigma, initial_values.min()))
+print("children produced   :", demo_children.shape)
+print("all genes in range  :", bool(np.all(np.abs(demo_children) <= 5.0)))
+print()
+print("                      best        mean       worst")
+print("parents  (50)   %10.5f  %10.5f  %10.5f"
+      % (initial_values.min(), initial_values.mean(), initial_values.max()))
+print("children (50)   %10.5f  %10.5f  %10.5f"
+      % (demo_child_values.min(), demo_child_values.mean(), demo_child_values.max()))
+print()
+print("The children are already better on average, because roulette-wheel selection")
+print("gave the good parents more chances to reproduce.")
+OUTPUT:
+sigma used          : 0.7972   (best value 3.1889 / 4)
+children produced   : (50, 2)
+all genes in range  : True
+
+                      best        mean       worst
+parents  (50)      3.18887     9.75588    13.38517
+children (50)      1.09542     8.03721    13.49156
+
+The children are already better on average, because roulette-wheel selection
+gave the good parents more chances to reproduce.
+
+
+=== CELL 34 markdown ===
+---
+
+## 17. Steps 4 and 9 — Elitism, Survivors, and the Duplicate Cap
+
+This implements assignment Step 9 — *keep the best 50 chromosomes from the available candidates while making
+sure the elite is preserved* — plus the duplicate cap from §9.2.
+
+1. pull the best `n_elites` parents out — the **elite**, in reserved seats;
+2. put everyone else (49 parents and 50 children) into one pool of 99 candidates;
+3. walk the pool from best to worst, taking each candidate **unless it already holds `max_copies` seats**;
+4. if the pool runs out of eligible candidates, fill the rest with fresh random chromosomes;
+5. sort the final 50 so index 0 is always the best.
+
+Because the elite never competes for its seat, the best solution found so far can never be lost.
+
+`survivor_kind` also offers `"offspring_only"`, where parents are discarded each round. It is measured in §27.
+
+=== CELL 35 code ===
+def select_survivors(population, values, offspring, offspring_values, rng, settings):
+    """Steps 4 and 9 - elites plus the best of the candidate pool, duplicates capped."""
+    ranking = np.argsort(values, kind="stable")
+    elite_index = ranking[:settings.n_elites]
+    elites, elite_values = population[elite_index], values[elite_index]   # Step 4
+
+    if settings.survivor_kind == "offspring_only":
+        pool, pool_values = offspring, offspring_values
+    else:                                                 # parents_plus_offspring
+        pool = np.vstack([np.delete(population, elite_index, axis=0), offspring])
+        pool_values = np.concatenate([np.delete(values, elite_index), offspring_values])
+
+    order = np.argsort(pool_values, kind="stable")        # best first
+    pool, pool_values = pool[order], pool_values[order]
+    free_seats = settings.population_size - settings.n_elites
+
+    if settings.max_copies > 0:
+        # Count how many seats each distinct chromosome already holds. Using the raw
+        # bytes of the row as a dictionary key gives an exact-duplicate test.
+        seats_used = {}
+        for elite in elites:
+            key = elite.tobytes()
+            seats_used[key] = seats_used.get(key, 0) + 1
+
+        chosen_rows = []
+        for i in range(len(pool)):
+            key = pool[i].tobytes()
+            if seats_used.get(key, 0) < settings.max_copies:
+                seats_used[key] = seats_used.get(key, 0) + 1
+                chosen_rows.append(i)
+                if len(chosen_rows) == free_seats:
+                    break
+        chosen_rows = np.asarray(chosen_rows, dtype=int)
+    else:
+        chosen_rows = np.arange(min(free_seats, len(pool)))
+
+    survivors, survivor_values = pool[chosen_rows], pool_values[chosen_rows]
+
+    # If the cap left seats empty, fill them with fresh random chromosomes.
+    missing = free_seats - len(survivors)
+    if missing > 0:
+        newcomers = rng.uniform(settings.lower, settings.upper,
+                                size=(missing, settings.n_genes))
+        survivors = np.vstack([survivors, newcomers]) if len(survivors) else newcomers
+        survivor_values = np.concatenate([survivor_values, ackley(newcomers)])
+
+    new_population = np.vstack([elites, survivors])
+    new_values = np.concatenate([elite_values, survivor_values])
+
+    final_order = np.argsort(new_values, kind="stable")   # Step 3 - keep it sorted
+    return new_population[final_order], new_values[final_order]
+
+
+demo_rng = np.random.default_rng(SETTINGS.seed + 1)
+next_population, next_values = select_survivors(
+    initial_population, initial_values, demo_children, demo_child_values, demo_rng, SETTINGS)
+
+print("population size stays constant :", next_population.shape)
+print("distinct chromosomes           : %d of %d"
+      % (len(np.unique(next_population, axis=0)), SETTINGS.population_size))
+print()
+print("                 best        mean       worst")
+print("generation 0  %9.5f  %10.5f  %10.5f"
+      % (initial_values.min(), initial_values.mean(), initial_values.max()))
+print("generation 1  %9.5f  %10.5f  %10.5f"
+      % (next_values.min(), next_values.mean(), next_values.max()))
+print()
+from_children = sum(1 for row in next_population if any(np.array_equal(row, c) for c in demo_children))
+print("%d of the 50 survivors are new children; the rest are parents good enough to keep"
+      % from_children)
+print("their seats. That is what stops a generation from ever being worse than the last.")
+OUTPUT:
+population size stays constant : (50, 2)
+distinct chromosomes           : 42 of 50
+
+                 best        mean       worst
+generation 0    3.18887     9.75588    13.38517
+generation 1    1.09542     6.55739     9.22360
+
+36 of the 50 survivors are new children; the rest are parents good enough to keep
+their seats. That is what stops a generation from ever being worse than the last.
+
+
+=== CELL 36 markdown ===
+---
+
+## 18. Step 10 — The Main Loop
+
+`run_ga` assembles the sequence and records a history, so every figure in Part 3 comes from one run.
+
+Inside each generation: record the state, check the two stopping rules, build and evaluate 50 offspring, form
+the next generation, then update the best-so-far solution and the stagnation counter. `stagnation` resets to
+zero whenever a generation improves the best value by more than `tolerance`, and increments otherwise; when it
+reaches `patience`, stopping rule 2 fires.
+
+=== CELL 37 code ===
+def run_ga(settings=SETTINGS, verbose=True, snapshot_at=()):
+    """Run the complete genetic algorithm and return everything worth reporting."""
+    rng = np.random.default_rng(settings.seed)
+
+    population = create_population(rng, settings)                 # Step 1
+    values = ackley(population)                                   # Step 2
+    order = np.argsort(values, kind="stable")                     # Step 3
+    population, values = population[order], values[order]
+
+    best_solution, best_value, best_generation = population[0].copy(), float(values[0]), 0
+
+    history = {key: [] for key in
+               ("generation", "best", "mean", "worst", "best_x1", "best_x2",
+                "spread", "sigma", "distinct")}
+    snapshots = {}
+    stagnation = 0
+    stop_reason = f"reached the maximum of {settings.max_generations} generations"
+
+    for generation in range(settings.max_generations + 1):
+        sigma = mutation_sigma(best_value, generation, settings)
+
+        history["generation"].append(generation)
+        history["best"].append(best_value)
+        history["mean"].append(float(values.mean()))
+        history["worst"].append(float(values.max()))
+        history["best_x1"].append(float(best_solution[0]))
+        history["best_x2"].append(float(best_solution[1]))
+        history["spread"].append(float(np.mean(np.std(population, axis=0))))
+        history["sigma"].append(sigma)
+        history["distinct"].append(int(len(np.unique(population, axis=0))))
+        if generation in snapshot_at:
+            snapshots[generation] = population.copy()
+
+        # --- stopping criteria ---------------------------------------
+        if generation == settings.max_generations:
+            break
+        if stagnation >= settings.patience:
+            stop_reason = (f"improvement stayed below {settings.tolerance:g} "
+                           f"for {settings.patience} generations in a row")
+            break
+
+        offspring = make_offspring(population, values, rng, settings, sigma)   # Steps 5-7
+        offspring_values = ackley(offspring)                                   # Step 8
+        population, values = select_survivors(population, values, offspring,
+                                              offspring_values, rng, settings)  # Steps 4, 9
+
+        improvement = best_value - float(values[0])
+        if improvement > 0.0:
+            best_value = float(values[0])
+            best_solution = population[0].copy()
+            best_generation = generation + 1
+        stagnation = stagnation + 1 if improvement < settings.tolerance else 0
+
+    result = {
+        "best_solution": best_solution,
+        "best_value": best_value,
+        "best_generation": best_generation,
+        "generations_run": history["generation"][-1],
+        "stop_reason": stop_reason,
+        "history": {key: np.asarray(value) for key, value in history.items()},
+        "population": population,
+        "values": values,
+        "snapshots": snapshots,
+        "settings": settings,
+    }
+
+    if verbose:
+        print("stopped because : " + stop_reason)
+        print("generations run : %d" % result["generations_run"])
+        print("best found at   : generation %d" % best_generation)
+        print("best x1         : %+.14f" % best_solution[0])
+        print("best x2         : %+.14f" % best_solution[1])
+        print("best f(x1, x2)  : %.12e" % best_value)
+
+    return result
+
+
+print("run_ga is ready.")
+OUTPUT:
+run_ga is ready.
+OUTPUT:
+
+
+
+=== CELL 38 markdown ===
+---
+
+# PART 3 — RESULTS AND ANALYSIS
+
+---
+
+## 19. Running the Genetic Algorithm
+
+The seed is fixed at 7, so these numbers reproduce exactly on a re-run. Section 26 repeats the experiment with
+40 different seeds to show the result does not depend on this particular sequence of random numbers.
+
+=== CELL 39 code ===
+SNAPSHOT_GENERATIONS = (0, 3, 8, 20, 50, 100)
+
+result = run_ga(SETTINGS, verbose=True, snapshot_at=SNAPSHOT_GENERATIONS)
+history = result["history"]
+OUTPUT:
+stopped because : reached the maximum of 100 generations
+generations run : 100
+best found at   : generation 100
+best x1         : -0.00000000000034
+best x2         : -0.00000000000017
+best f(x1, x2)  : 1.087574474923e-12
+
+
+=== CELL 40 markdown ===
+---
+
+## 20. The Required Final Report
+
+=== CELL 41 code ===
+best_x1, best_x2 = result["best_solution"]
+best_f = result["best_value"]
+
+error_x1, error_x2 = abs(best_x1), abs(best_x2)
+distance = float(np.linalg.norm(result["best_solution"] - GLOBAL_OPTIMUM))
+error_f = abs(best_f)
+
+
+def decimal_places(error):
+    """How many decimal places of the answer are correct."""
+    return int(np.floor(-np.log10(error))) if error > 0 else float("inf")
+
+
+rule = "=" * 68
+print(rule)
+print(" FINAL RESULT - 2-D Ackley minimisation by Genetic Algorithm")
+print(rule)
+print(" Best x1                        : %+.14f" % best_x1)
+print(" Best x2                        : %+.14f" % best_x2)
+print(" Best Ackley value f(x1, x2)    : %.12e" % best_f)
+print(" Found at generation            : %d  (of %d run)"
+      % (result["best_generation"], result["generations_run"]))
+print(" Stopping reason                : %s" % result["stop_reason"])
+print(rule)
+print(" PRECISION AGAINST THE TRUE OPTIMUM   x* = (0, 0),  f(x*) = 0")
+print(rule)
+print(" |x1 - 0|                       : %.3e   (%d correct decimal places)"
+      % (error_x1, decimal_places(error_x1)))
+print(" |x2 - 0|                       : %.3e   (%d correct decimal places)"
+      % (error_x2, decimal_places(error_x2)))
+print(" Euclidean distance to (0, 0)   : %.3e" % distance)
+print(" |f(x1, x2) - 0|                : %.3e   (%d correct decimal places)"
+      % (error_f, decimal_places(error_f)))
+print(rule)
+print(" Function evaluations used      : %d"
+      % (SETTINGS.population_size * (result["generations_run"] + 1)))
+print(rule)
+OUTPUT:
+====================================================================
+ FINAL RESULT - 2-D Ackley minimisation by Genetic Algorithm
+====================================================================
+ Best x1                        : -0.00000000000034
+ Best x2                        : -0.00000000000017
+ Best Ackley value f(x1, x2)    : 1.087574474923e-12
+ Found at generation            : 100  (of 100 run)
+ Stopping reason                : reached the maximum of 100 generations
+====================================================================
+ PRECISION AGAINST THE TRUE OPTIMUM   x* = (0, 0),  f(x*) = 0
+====================================================================
+ |x1 - 0|                       : 3.436e-13   (12 correct decimal places)
+ |x2 - 0|                       : 1.730e-13   (12 correct decimal places)
+ Euclidean distance to (0, 0)   : 3.847e-13
+ |f(x1, x2) - 0|                : 1.088e-12   (11 correct decimal places)
+====================================================================
+ Function evaluations used      : 5050
+====================================================================
+
+
+=== CELL 42 markdown ===
+### Reading the result
+
+The GA located the global minimum to about eleven decimal places in the objective value and twelve in each
+coordinate, using roughly 5000 function evaluations. A grid fine enough to match that accuracy by brute force
+would need on the order of $10^{28}$ evaluations.
+
+It is not *exactly* zero, and it is not supposed to be: a GA samples the space, it does not solve an equation.
+The right standard is whether the remaining error is negligible, and at $10^{-12}$ it clearly is.
+
+=== CELL 43 markdown ===
+---
+
+## 21. Convergence Behaviour
+
+Three curves on a logarithmic axis, because the values fall through twelve orders of magnitude.
+
+=== CELL 44 code ===
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.6))
+floor = 1e-16
+
+ax = axes[0]
+ax.semilogy(history["generation"], np.maximum(history["best"], floor),
+            color="#1f4e9c", linewidth=2.3, label="best so far")
+ax.semilogy(history["generation"], np.maximum(history["mean"], floor),
+            color="#e07b39", linewidth=1.7, label="population mean")
+ax.semilogy(history["generation"], np.maximum(history["worst"], floor),
+            color="#9aa5b1", linewidth=1.2, linestyle="--", label="population worst")
+ax.axvline(result["best_generation"], color="green", linestyle=":", linewidth=1.4,
+           label=f"best found (gen {result['best_generation']})")
+ax.set_xlabel("generation")
+ax.set_ylabel("Ackley value (log scale)")
+ax.set_title("Convergence of the population")
+ax.legend(fontsize=8)
+
+ax = axes[1]
+spread = np.where(history["spread"] > 0, history["spread"], np.nan)
+ax.semilogy(history["generation"], spread,
+            color="#8e44ad", linewidth=1.9, label="population spread (mean std of genes)")
+ax.semilogy(history["generation"], history["sigma"],
+            color="#16a085", linewidth=1.8, linestyle="--",
+            label=r"mutation step $\sigma = f_{best}/4$")
+ax.set_xlabel("generation")
+ax.set_ylabel("size (log scale)")
+ax.set_title("How the search narrows down")
+ax.legend(fontsize=8, loc="lower left")
+
+twin = ax.twinx()
+twin.plot(history["generation"], history["distinct"],
+          color="#c0392b", linewidth=1.3, alpha=0.85)
+twin.set_ylabel("distinct chromosomes (red)", color="#c0392b")
+twin.tick_params(axis="y", labelcolor="#c0392b")
+twin.set_ylim(0, SETTINGS.population_size + 2)
+twin.grid(False)
+
+plt.tight_layout()
+plt.show()
+
+distinct = np.asarray(history["distinct"])
+half = len(distinct) // 2
+print("distinct chromosomes : %d at generation 0, median %.0f over the second half, %d at the end"
+      % (distinct[0], np.median(distinct[half:]), distinct[-1]))
+print("generations where all 50 were identical : %d" % int((distinct == 1).sum()))
+OUTPUT:
+<Figure size 1430x506 with 3 Axes>
+OUTPUT:
+distinct chromosomes : 50 at generation 0, median 13 over the second half, 16 at the end
+generations where all 50 were identical : 0
+
+
+=== CELL 45 code ===
+rows = [g for g in history["generation"] if g <= 5 or g % 10 == 0]
+
+print(" gen        best f        mean f       worst f      best x1       best x2      sigma   distinct")
+print(" " + "-" * 100)
+for g in rows:
+    i = int(np.where(history["generation"] == g)[0][0])
+    print(" %3d   %12.6e  %12.6e  %12.4e  %+11.3e  %+11.3e  %9.2e   %3d"
+          % (g, history["best"][i], history["mean"][i], history["worst"][i],
+             history["best_x1"][i], history["best_x2"][i],
+             history["sigma"][i], history["distinct"][i]))
+print(" " + "-" * 100)
+print(" The best column never increases, because the elite is always kept.")
+OUTPUT:
+ gen        best f        mean f       worst f      best x1       best x2      sigma   distinct
+ ----------------------------------------------------------------------------------------------------
+   0   3.188874e+00  9.755876e+00    1.3385e+01   +4.548e-02   +5.350e-01   7.97e-01    50
+   1   3.188874e+00  7.671509e+00    9.7171e+00   +4.548e-02   +5.350e-01   7.97e-01    45
+   2   2.763082e+00  5.349901e+00    8.0686e+00   +7.772e-02   +9.818e-01   6.91e-01    38
+   3   2.619472e+00  3.677568e+00    4.5585e+00   -3.227e-01   +1.489e-01   6.55e-01    26
+   4   1.913231e-01  3.039920e+00    3.7560e+00   +4.548e-02   -1.227e-02   4.78e-02    22
+   5   1.247882e-01  2.278186e+00    3.1889e+00   -3.127e-02   -1.227e-02   3.12e-02    27
+  10   5.566617e-02  1.205450e-01    1.6658e-01   +1.561e-02   +6.673e-03   1.39e-02    13
+  20   5.869479e-03  1.027970e-02    1.1912e-02   +5.821e-04   +1.951e-03   1.47e-03    13
+  30   8.381199e-04  9.600733e-04    1.0981e-03   -7.124e-05   +2.868e-04   2.10e-04     8
+  40   3.292225e-05  7.180627e-05    9.8053e-05   -9.959e-06   +6.022e-06   8.23e-06     7
+  50   3.713131e-06  9.286327e-06    1.3358e-05   -1.253e-06   +3.928e-07   9.28e-07    16
+  60   5.264678e-07  8.982668e-07    1.3781e-06   +1.861e-07   +8.775e-11   1.32e-07    11
+  70   1.107898e-07  1.323160e-07    1.9829e-07   +3.917e-08   +8.775e-11   2.77e-08    13
+  80   6.177889e-10  9.752064e-10    1.5335e-09   -2.000e-10   +8.775e-11   1.54e-10    13
+  90   1.049796e-10  1.663285e-10    2.4173e-10   -1.835e-12   +3.707e-11   2.62e-11    13
+ 100   1.087574e-12  1.302064e-11    2.1523e-11   -3.436e-13   -1.730e-13   1.00e-12    16
+ ----------------------------------------------------------------------------------------------------
+ The best column never increases, because the elite is always kept.
+
+
+=== CELL 46 markdown ===
+### What the two plots say
+
+**Left — convergence.** A steep drop over the first ~20 generations, where selection and crossover spread the
+few good coordinates that already existed in the random start. Then a staircase: flat stretches where mutation
+found nothing, and sudden drops where it did. Flat stretches are normal, and they are why the stopping rule
+waits for 20 of them in a row rather than one. The blue curve never rises — that is elitism.
+
+**Right — how the search narrows.** The green dashed line is the mutation step, now driven by the best value
+rather than by the clock, and the purple line is how widely the population is actually spread. They track each
+other closely, which is exactly the intended behaviour: the step size is always about the size of the gap that
+is left.
+
+The red line is the number of **distinct** chromosomes. It settles around a dozen and never collapses to 1, so
+the population stays a genuine population for the whole run. §25 shows what this looked like before the
+duplicate cap was added.
+
+**On the "20-25 generations" note in the assignment sheet.** The table above makes it concrete. By generation
+20 the best value is already about $6	imes10^{-3}$, with $x_1$ and $x_2$ both within a few thousandths of
+zero. On any plot of the search space the answer is *visually* found by then, and that is the practical
+convergence region the sheet refers to.
+
+Everything after roughly generation 25 is no longer searching; it is adding decimal places to an answer we
+already have. We still run the full 100 generations because the assignment asks us to report **precision**, and
+those last 75 generations are exactly what turn two or three correct decimals into twelve.
+
+=== CELL 47 markdown ===
+---
+
+## 22. Where the Best Solution Travelled
+
+Each marker is a point where the GA found a new best-so-far solution.
+
+=== CELL 48 code ===
+path = np.column_stack([history["best_x1"], history["best_x2"]])
+changed = np.r_[True, np.any(np.diff(path, axis=0) != 0, axis=1)]
+improvements = path[changed]
+
+fig, axes = plt.subplots(1, 2, figsize=(13.4, 5.8))
+
+for ax, limit, label in [(axes[0], 5.0, "full search space"), (axes[1], 0.45, "zoom near the optimum")]:
+    g = np.linspace(-limit, limit, 400)
+    A, B = np.meshgrid(g, g)
+    filled = ax.contourf(A, B, ackley(np.stack([A, B], axis=-1)), levels=45, cmap="viridis")
+    fig.colorbar(filled, ax=ax, fraction=0.046, label="Ackley value")
+
+    inside = np.all(np.abs(improvements) <= limit, axis=1)
+    ax.plot(improvements[inside, 0], improvements[inside, 1], "o-",
+            color="white", markeredgecolor="black", markersize=5,
+            linewidth=1.5, label="best-so-far path")
+    ax.scatter(0, 0, marker="*", s=260, color="red", edgecolor="black",
+               zorder=6, label="true optimum $(0,0)$")
+    ax.scatter(best_x1, best_x2, marker="X", s=120, color="cyan",
+               edgecolor="black", zorder=6, label="GA result")
+    ax.set_xlabel("$x_1$"); ax.set_ylabel("$x_2$")
+    ax.set_title(f"Best-solution path — {label}")
+    ax.set_aspect("equal")
+    ax.legend(loc="upper right", fontsize=8)
+
+plt.tight_layout()
+plt.show()
+
+print("The best solution was improved %d times during the run." % (len(improvements) - 1))
+OUTPUT:
+<Figure size 1474x638 with 4 Axes>
+OUTPUT:
+The best solution was improved 56 times during the run.
+
+
+=== CELL 49 markdown ===
+---
+
+## 23. The Whole Population, Generation by Generation
+
+The convergence curve shows only the best individual. These six panels show all 50, which is a better picture
+of what a GA does: the cloud does not walk to the answer, it **contracts** onto it.
+
+**Read the axis labels** — each panel is zoomed to its own population, so the later ones are magnified
+enormously. Notice also that the ripples are clearly visible in the first panels and gone in the last ones:
+zoomed in far enough, the cosine term is too long-wavelength to show, and the function becomes a smooth bowl.
+That is why the final stage is pure fine tuning — there is nothing left to escape from.
+
+=== CELL 50 code ===
+available = [g for g in SNAPSHOT_GENERATIONS if g in result["snapshots"]]
+fig, axes = plt.subplots(2, 3, figsize=(13.5, 9.0))
+
+for ax, generation in zip(axes.ravel(), available):
+    snapshot = result["snapshots"][generation]
+
+    limit = max(min(1.5 * np.abs(snapshot).max(), 5.2), 1e-13)
+    g = np.linspace(-limit, limit, 200)
+    A, B = np.meshgrid(g, g)
+    ax.contourf(A, B, ackley(np.stack([A, B], axis=-1)), levels=40, cmap="viridis")
+
+    ax.scatter(snapshot[:, 0], snapshot[:, 1], s=34, color="white",
+               edgecolor="black", linewidth=0.6, zorder=4)
+    ax.scatter(0, 0, marker="*", s=170, color="red", edgecolor="black", zorder=5)
+    ax.set_xlim(-limit, limit); ax.set_ylim(-limit, limit); ax.set_aspect("equal")
+    ax.set_title("generation %d   —   best f = %.2e\nview half-width = %.1e"
+                 % (generation, ackley(snapshot).min(), limit), fontsize=9.5)
+    ax.set_xticks([-limit, 0, limit])
+    ax.set_xticklabels([f"{-limit:.1e}", "0", f"{limit:.1e}"], fontsize=7.5)
+    ax.set_yticks([-limit, 0, limit])
+    ax.set_yticklabels([f"{-limit:.1e}", "0", f"{limit:.1e}"], fontsize=7.5)
+
+for ax in axes.ravel()[len(available):]:
+    ax.axis("off")
+
+fig.suptitle("The population contracts onto the global minimum — note the axis scale of each panel",
+             fontsize=12.5)
+plt.tight_layout()
+plt.show()
+
+print(" gen   distinct   spread (mean std of genes)")
+for generation in available:
+    snapshot = result["snapshots"][generation]
+    print("  %3d   %6d     %.6e"
+          % (generation, len(np.unique(snapshot, axis=0)), np.mean(np.std(snapshot, axis=0))))
+OUTPUT:
+<Figure size 1485x990 with 6 Axes>
+OUTPUT:
+ gen   distinct   spread (mean std of genes)
+    0       50     2.889094e+00
+    3       26     4.885781e-01
+    8       13     3.007080e-02
+   20       13     5.898909e-04
+   50       16     1.635479e-06
+  100       16     2.601965e-12
+
+
+=== CELL 51 markdown ===
+---
+
+## 24. How the Roulette Wheel Changes During the Run
+
+=== CELL 52 code ===
+mid_generation = [g for g in available if g >= 8][0]
+mid_values = ackley(result["snapshots"][mid_generation])
+
+fig, axes = plt.subplots(1, 2, figsize=(13.5, 6.6))
+p_early = plot_roulette_pie(initial_values, ax=axes[0], n_labelled=8,
+                            title="Generation 0 — values range from about 3 to 13")
+p_mid = plot_roulette_pie(mid_values, ax=axes[1], n_labelled=8,
+                          title=f"Generation {mid_generation} — same shape, far smaller scale")
+plt.tight_layout()
+plt.show()
+OUTPUT:
+<Figure size 1485x726 with 2 Axes>
+
+=== CELL 53 code ===
+print(" gen   distinct   best f        worst f      largest slice   ratio max/min")
+print("                                                  windowing | inverse")
+print(" " + "-" * 78)
+for generation in available:
+    snapshot = result["snapshots"][generation]
+    v = ackley(snapshot)
+    pw = selection_probabilities(v, "windowing")
+    pi = selection_probabilities(v, "inverse")
+    print(" %3d   %6d   %11.4e  %11.4e   %8.2f %%   %8.2f | %7.2f"
+          % (generation, len(np.unique(snapshot, axis=0)), v.min(), v.max(),
+             100 * pw.max(), pw.max() / pw.min(), pi.max() / pi.min()))
+print(" " + "-" * 78)
+OUTPUT:
+ gen   distinct   best f        worst f      largest slice   ratio max/min
+                                                  windowing | inverse
+ ------------------------------------------------------------------------------
+   0       50    3.1889e+00   1.3385e+01       4.83 %      11.00 |    3.43
+   3       26    2.6195e+00   4.5585e+00       3.97 %      11.00 |    1.54
+   8       13    6.6625e-02   3.6341e-01       3.16 %      11.00 |    1.28
+  20       13    5.8695e-03   1.1912e-02       5.94 %      11.00 |    1.01
+  50       16    3.7131e-06   1.3358e-05       4.21 %      11.00 |    1.00
+ 100       16    1.0876e-12   2.1523e-11       4.07 %       7.71 |    1.00
+ ------------------------------------------------------------------------------
+
+
+=== CELL 54 markdown ===
+### Reading the table
+
+**Windowing is scale-invariant.** Its ratio between the biggest and smallest slice stays pinned at 11.00 even
+though the objective values have fallen by twelve orders of magnitude. That is the whole point of measuring
+fitness as a *window*, $f_{\max}-f_i$: what matters is how a chromosome compares with its current rivals, not
+how large $f$ happens to be. (In the last row the ratio dips below 11 only because the values have shrunk to
+the size of the safety term $\varepsilon=10^{-12}$ inside $\delta$, which then stops being negligible.)
+
+**The inverse transform $1/(1+f)$ is not.** Once every $f$ is small, every fitness is close to 1, the ratio
+collapses to 1.00, and the wheel becomes uniform — selection stops distinguishing good from mediocre. That is
+a real weakness on a minimisation problem whose optimum is zero, and it is why windowing is our default.
+
+=== CELL 55 markdown ===
+---
+
+## 25. Two Weaknesses We Found, and How We Fixed Them
+
+Our first working version used the two obvious choices: a **clock-based mutation schedule** ($\sigma$ shrinking
+from 1 to $10^{-8}$ by generation 100) and **plain truncation** of the 100 candidates down to 50. It reached
+$f \approx 10^{-9}$ and looked fine. Running it 40 times exposed two problems.
+
+**Weakness 1 — the population became clones.** By generation 11 all 50 chromosomes were the same point. The GA
+had stopped being a population method.
+
+**Weakness 2 — one run in 40 was trapped.** It finished at $f \approx 2.58$, sitting on the first ring of local
+minima, because $\sigma$ had shrunk below the distance needed to escape long before the run ended.
+
+The two fixes are described in §8 (adaptive $\sigma$) and §9.2 (duplicate cap). The cell below switches each
+one on and off independently — a 2 × 2 comparison on the same 40 seeds — so we can see what each one is
+actually responsible for.
+
+=== CELL 56 code ===
+def compare_versions(label, settings, n_runs=40):
+    values, distances, distinct = [], [], []
+    for seed in range(n_runs):
+        one = run_ga(replace(settings, seed=seed), verbose=False)
+        values.append(one["best_value"])
+        distances.append(float(np.linalg.norm(one["best_solution"])))
+        d = one["history"]["distinct"]
+        distinct.append(float(np.median(d[len(d) // 2:])))
+    values, distances = np.asarray(values), np.asarray(distances)
+    return {
+        "label": label,
+        "median": np.median(values),
+        "worst": values.max(),
+        "basin": float((distances < 0.5).mean()),   # ended in the correct valley?
+        "distinct": np.median(distinct),
+    }
+
+
+rows = [
+    compare_versions("clock sigma  |  no cap   (v1)",
+                     replace(SETTINGS, sigma_kind="schedule", max_copies=0)),
+    compare_versions("clock sigma  |  cap 15",
+                     replace(SETTINGS, sigma_kind="schedule")),
+    compare_versions("adaptive     |  no cap",
+                     replace(SETTINGS, max_copies=0)),
+    compare_versions("adaptive     |  cap 15  (final)", SETTINGS),
+]
+
+print(" mutation step | duplicates       median f      worst f     correct valley   distinct")
+print(" " + "-" * 84)
+for r in rows:
+    print(" %-32s %11.3e  %11.3e      %5.0f %%       %5.0f"
+          % (r["label"], r["median"], r["worst"], 100 * r["basin"], r["distinct"]))
+print(" " + "-" * 84)
+print(" 'correct valley' = the run ended within 0.5 of (0,0) rather than on a ring of local minima.")
+print(" 'distinct'       = median number of different chromosomes in the second half of the run.")
+OUTPUT:
+ mutation step | duplicates       median f      worst f     correct valley   distinct
+ ------------------------------------------------------------------------------------
+ clock sigma  |  no cap   (v1)      5.516e-09    2.580e+00         98 %           3
+ clock sigma  |  cap 15             6.761e-09    2.580e+00         98 %           9
+ adaptive     |  no cap             4.996e-13    2.306e-11        100 %           8
+ adaptive     |  cap 15  (final)    1.636e-12    3.137e-11        100 %          13
+ ------------------------------------------------------------------------------------
+ 'correct valley' = the run ended within 0.5 of (0,0) rather than on a ring of local minima.
+ 'distinct'       = median number of different chromosomes in the second half of the run.
+
+
+=== CELL 57 markdown ===
+### What the comparison shows
+
+Reading the table column by column separates the two effects cleanly.
+
+* **The duplicate cap owns the diversity column.** Under either $\sigma$ rule it lifts the number of distinct
+  chromosomes several times over. It does *not* fix the trapped run: with the clock schedule, the worst result
+  is still $\approx 2.58$ whether the cap is on or off.
+* **The adaptive step size owns the other three columns.** It removes the trapped run — every run now ends in
+  the correct valley — and improves the median accuracy by about three orders of magnitude, because the step
+  size no longer runs out before the search does. It also raises diversity on its own, since a
+  proportionally-sized step keeps producing genuinely different children.
+
+The two rows with adaptive $\sigma$ land within a small factor of each other, so the cap is close to free. We
+keep it because diversity is *insurance*: a population of clones has no way to recover if it is ever in the
+wrong place, and the cost of carrying that insurance is almost nothing.
+
+Both fixes are small — one changes how $\sigma$ is computed, the other adds a quota when choosing survivors —
+and neither touches any parameter the assignment specifies.
+
+=== CELL 58 markdown ===
+---
+
+## 26. Is One Good Run Just Luck?
+
+A single run proves nothing about a randomised algorithm. Here the same GA runs **40 times with 40 different
+seeds**, nothing else changed.
+
+=== CELL 59 code ===
+N_RUNS = 40
+run_values, run_solutions, run_generations, run_best_generations = [], [], [], []
+
+for seed in range(N_RUNS):
+    one = run_ga(replace(SETTINGS, seed=seed), verbose=False)
+    run_values.append(one["best_value"])
+    run_solutions.append(one["best_solution"])
+    run_generations.append(one["generations_run"])
+    run_best_generations.append(one["best_generation"])
+
+run_values = np.asarray(run_values)
+run_solutions = np.asarray(run_solutions)
+run_distances = np.linalg.norm(run_solutions, axis=1)
+in_valley = run_distances < 0.5
+precise = run_values < 1e-6
+
+print("Summary over %d independent runs" % N_RUNS)
+print("-" * 58)
+print(" best  f found            : %.6e" % run_values.min())
+print(" median f found           : %.6e" % np.median(run_values))
+print(" worst f found            : %.6e" % run_values.max())
+print(" ended in the correct valley : %d / %d   (%.0f %%)"
+      % (in_valley.sum(), N_RUNS, 100 * in_valley.mean()))
+print(" reached f < 1e-6            : %d / %d   (%.0f %%)"
+      % (precise.sum(), N_RUNS, 100 * precise.mean()))
+print(" median distance to (0,0) : %.3e" % np.median(run_distances))
+print(" mean generations run     : %.1f" % np.mean(run_generations))
+print(" mean generation of best  : %.1f" % np.mean(run_best_generations))
+print("-" * 58)
+
+if (~precise).any():
+    print(" runs that did not reach 1e-6:")
+    for i in np.where(~precise)[0]:
+        print("   seed %2d :  f = %.3e   at (%+.4f, %+.4f)"
+              % (i, run_values[i], run_solutions[i, 0], run_solutions[i, 1]))
+else:
+    print(" Every run reached the global minimum to better than 1e-6.")
+OUTPUT:
+Summary over 40 independent runs
+----------------------------------------------------------
+ best  f found            : 1.105782e-13
+ median f found           : 1.636469e-12
+ worst f found            : 3.137091e-11
+ ended in the correct valley : 40 / 40   (100 %)
+ reached f < 1e-6            : 40 / 40   (100 %)
+ median distance to (0,0) : 5.782e-13
+ mean generations run     : 96.1
+ mean generation of best  : 95.1
+----------------------------------------------------------
+ Every run reached the global minimum to better than 1e-6.
+
+
+=== CELL 60 code ===
+fig, axes = plt.subplots(1, 2, figsize=(13.2, 4.4))
+
+ax = axes[0]
+ax.bar(np.arange(N_RUNS), np.maximum(run_values, 1e-18),
+       color=["#2e7d32" if p else "#c62828" for p in precise])
+ax.set_yscale("log")
+ax.axhline(1e-6, color="black", linestyle="--", linewidth=1.0, label="success threshold $10^{-6}$")
+ax.set_xlabel("run (seed)")
+ax.set_ylabel("final best $f$  (log scale)")
+ax.set_title("Final result of each of the %d runs" % N_RUNS)
+ax.legend(fontsize=8)
+
+ax = axes[1]
+ax.contourf(X1, X2, Z, levels=45, cmap="viridis", alpha=0.9)
+ax.scatter(run_solutions[in_valley, 0], run_solutions[in_valley, 1], s=60, color="#7CFC00",
+           edgecolor="black", linewidth=0.7, zorder=4,
+           label="%d runs on the global optimum" % in_valley.sum())
+if (~in_valley).any():
+    ax.scatter(run_solutions[~in_valley, 0], run_solutions[~in_valley, 1], s=130,
+               color="#ff2d2d", marker="X", edgecolor="black", linewidth=0.9, zorder=5,
+               label="%d trapped run(s)" % (~in_valley).sum())
+ax.scatter(0, 0, marker="*", s=420, facecolors="none", edgecolors="white", linewidths=1.5,
+           zorder=6, label="true optimum (green dots sit inside it)")
+ax.set_xlabel("$x_1$"); ax.set_ylabel("$x_2$"); ax.set_aspect("equal")
+ax.set_title("Where the %d runs finished, on the real landscape" % N_RUNS)
+ax.legend(fontsize=7.5, loc="upper right")
+
+plt.tight_layout()
+plt.show()
+OUTPUT:
+<Figure size 1452x484 with 2 Axes>
+
+=== CELL 61 markdown ===
+Every run lands on the global optimum, and the spread of final values is narrow, so the single run in §19
+was not luck. The green dots on the right are all stacked inside the star.
+
+Reporting a **median over many runs** is still the honest way to describe a randomised algorithm, and it is
+what we would quote if asked for a single number for this implementation.
+
+=== CELL 62 markdown ===
+---
+
+## 27. Does Each Part Earn Its Place?
+
+Each row changes exactly one thing and leaves everything else identical. Every configuration runs 15 times so
+the comparison is not decided by one seed.
+
+=== CELL 63 code ===
+def evaluate_variant(label, changes, n_runs=15):
+    values = np.asarray([run_ga(replace(SETTINGS, seed=s, **changes), verbose=False)["best_value"]
+                         for s in range(n_runs)])
+    return {"label": label, "median": np.median(values), "worst": values.max(),
+            "success": float((values < 1e-6).mean())}
+
+
+variants = [
+    evaluate_variant("full GA as specified", {}),
+    evaluate_variant("clock-based sigma schedule", {"sigma_kind": "schedule"}),
+    evaluate_variant("fixed sigma = 0.1", {"sigma_kind": "fixed", "sigma_start": 0.1}),
+    evaluate_variant("uniform mutation instead of Gaussian", {"mutation_kind": "uniform"}),
+    evaluate_variant("no duplicate cap", {"max_copies": 0}),
+    evaluate_variant("inverse fitness 1/(1+f)", {"fitness_kind": "inverse"}),
+    evaluate_variant("survivors from offspring only", {"survivor_kind": "offspring_only"}),
+    evaluate_variant("no crossover (Pc = 0)", {"pc": 0.0}),
+    evaluate_variant("no mutation (Pm = 0)", {"pm": 0.0}),
+    evaluate_variant("no elitism, offspring-only survivors",
+                     {"n_elites": 0, "survivor_kind": "offspring_only"}),
+]
+
+print(" variant                                  median f      worst f     success rate")
+print(" " + "-" * 76)
+for v in variants:
+    print(" %-38s %11.3e  %11.3e   %9.0f %%"
+          % (v["label"], v["median"], v["worst"], 100 * v["success"]))
+print(" " + "-" * 76)
+OUTPUT:
+ variant                                  median f      worst f     success rate
+ ----------------------------------------------------------------------------
+ full GA as specified                     1.088e-12    2.449e-11         100 %
+ clock-based sigma schedule               6.415e-09    1.721e-08         100 %
+ fixed sigma = 0.1                        3.655e-03    1.188e-02           0 %
+ uniform mutation instead of Gaussian     1.682e-01    5.887e-01           0 %
+ no duplicate cap                         3.948e-13    3.656e-12         100 %
+ inverse fitness 1/(1+f)                  3.001e-10    6.198e-08         100 %
+ survivors from offspring only            5.100e-08    2.180e-07         100 %
+ no crossover (Pc = 0)                    5.469e-10    8.337e-09         100 %
+ no mutation (Pm = 0)                     1.172e+00    2.531e+00           0 %
+ no elitism, offspring-only survivors     3.493e-05    5.653e-03           0 %
+ ----------------------------------------------------------------------------
+
+
+=== CELL 64 markdown ===
+### What the comparison shows
+
+* **The mutation step rule is the single biggest factor.** A fixed step stalls at roughly its own size, and the
+  clock-based schedule lands three orders of magnitude short of the adaptive rule.
+* **Uniform mutation** replaces a gene with a fresh random value — great for escaping ripples, hopeless for
+  fine tuning, because a child sitting $10^{-12}$ from the optimum gets thrown back into $[-5,5]$.
+* **The duplicate cap** is roughly accuracy-neutral, as §25 already showed. Its value is diversity, not
+  precision.
+* **The inverse fitness transform** still converges, but ends short of windowing, for the reason in §24: its
+  wheel goes uniform once all the values are small.
+* **Offspring-only survivors** discard good parents every round. That keeps diversity high but loses several
+  orders of magnitude of precision — the exploration/exploitation trade-off in one line.
+* **Without crossover** the GA still converges, but noticeably less far, because nothing recombines a good
+  $x_1$ found by one chromosome with a good $x_2$ found by another.
+* **Without mutation** it fails completely. With two genes, crossover can only re-pair coordinates that already
+  exist, so with no new numbers the search is confined forever to the $50\times50$ grid of coordinates present
+  at generation 0.
+* **Without elitism** (and with parents discarded, so the best really can be lost) the result becomes unstable.
+
+Every operator in the specification has a distinct job, and removing any one damages a different part of the
+behaviour.
+
+=== CELL 65 markdown ===
+### A baseline: is the GA better than pure luck?
+
+The fair comparison is random search with **exactly the same budget** of function evaluations.
+
+=== CELL 66 code ===
+budget = SETTINGS.population_size * (result["generations_run"] + 1)
+baseline_rng = np.random.default_rng(SETTINGS.seed)
+random_points = baseline_rng.uniform(SETTINGS.lower, SETTINGS.upper, size=(budget, 2))
+random_best = ackley(random_points).min()
+
+print("function evaluations allowed to both methods : %d" % budget)
+print()
+print("pure random search  : f = %.6e" % random_best)
+print("genetic algorithm   : f = %.6e" % best_f)
+print()
+print("The GA is better by a factor of about %.3g." % (random_best / max(best_f, 1e-300)))
+print("Both looked at the same number of points; the GA chose where to look next")
+print("using what it had already learned.")
+OUTPUT:
+function evaluations allowed to both methods : 5050
+
+pure random search  : f = 7.693070e-01
+genetic algorithm   : f = 1.087574e-12
+
+The GA is better by a factor of about 7.07e+11.
+Both looked at the same number of points; the GA chose where to look next
+using what it had already learned.
+
+
+=== CELL 67 markdown ===
+---
+
+## 28. Correctness Checks
+
+Assertions for the rules that must never be broken. If any fails, the notebook stops with an error, so the
+results above cannot silently be wrong.
+
+=== CELL 68 code ===
+assert abs(ackley([0.0, 0.0])) < 1e-12, "f(0,0) must be 0"
+
+assert result["population"].shape == (SETTINGS.population_size, SETTINGS.n_genes), \
+    "population must stay 50 x 2"
+assert np.all(result["population"] >= SETTINGS.lower), "a gene fell below -5"
+assert np.all(result["population"] <= SETTINGS.upper), "a gene rose above +5"
+assert np.all(np.isfinite(result["values"])), "an objective value is not finite"
+
+assert np.all(np.diff(history["best"]) <= 1e-15), "elitism broken: best-so-far got worse"
+assert np.isclose(ackley(result["best_solution"]), result["best_value"]), \
+    "reported best value does not match the reported chromosome"
+assert result["best_value"] <= history["best"][0], "no improvement over generation 0"
+
+counts = np.unique(result["population"], axis=0, return_counts=True)[1]
+assert counts.max() <= SETTINGS.max_copies, "the duplicate cap was exceeded"
+
+probabilities_check = selection_probabilities(result["values"], SETTINGS.fitness_kind)
+assert np.isclose(probabilities_check.sum(), 1.0), "selection probabilities must sum to 1"
+assert np.all(probabilities_check > 0), "every chromosome must keep a non-zero chance"
+
+assert np.isclose(run_ga(SETTINGS, verbose=False)["best_value"], result["best_value"]), \
+    "the seeded run is not reproducible"
+
+print("All correctness checks passed.")
+print("  - f(0,0) = 0")
+print("  - population stayed 50 x 2 and inside [-5, +5]")
+print("  - best-so-far never got worse (elitism holds)")
+print("  - no chromosome exceeded %d of the 50 seats" % SETTINGS.max_copies)
+print("  - selection probabilities sum to 1 and none is zero")
+print("  - the seeded run reproduces exactly")
+OUTPUT:
+All correctness checks passed.
+  - f(0,0) = 0
+  - population stayed 50 x 2 and inside [-5, +5]
+  - best-so-far never got worse (elitism holds)
+  - no chromosome exceeded 15 of the 50 seats
+  - selection probabilities sum to 1 and none is zero
+  - the seeded run reproduces exactly
+
+
+=== CELL 69 markdown ===
+---
+
+## 29. Conclusion
+
+**The task.** Minimise the 2-D Ackley function over $[-5,5]^2$ with a genetic algorithm using value encoding,
+roulette-wheel selection, one-point crossover, mutation and elitism of 1, with a population of 50 and at most
+100 generations.
+
+**The outcome.** The GA located the global minimum with an objective error of about $10^{-12}$, using roughly
+5000 function evaluations, and all 40 independent runs reached it.
+
+| Component | Its job in this problem |
+|---|---|
+| Value encoding | a gene holds any real number, so precision is not capped by a bit-width |
+| Fitness transform | turns "small $f$ is good" into "large fitness is good" for the wheel |
+| Roulette-wheel selection | better chromosomes get more children, weak ones keep a small chance |
+| One-point crossover | pairs a good $x_1$ from one parent with a good $x_2$ from another |
+| Gaussian mutation | creates values the population never held — the only way out of a ripple |
+| Adaptive $\sigma=f_{\text{best}}/4$ | steps always match the distance still to cover |
+| Clipping | keeps every gene legal, inside $[-5,+5]$ |
+| Elitism = 1 | the best solution can never be lost |
+| Best 50 of 100, max 15 copies | a generation is never worse than the last, and never becomes clones |
+
+**What we learned about the method**
+
+* A GA needs no gradient and no assumption about the shape of the function — only the ability to compare two
+  candidates. That is why it transfers to problems where no formula exists at all.
+* Its accuracy is limited by the size of the random step it can still take, which is why the mutation rule,
+  not the population size, was the decisive parameter here.
+* A first version that *works* is not the same as one that works *reliably*. The two weaknesses in §25 were
+  only visible after running the algorithm 40 times, and both fixes were a few lines each.
+
+$$x^{*}=(0,0),\qquad f(x^{*})=0 .$$

@@ -1,0 +1,67 @@
+{
+  "best_value": 1.0875744749228033e-12,
+  "best_generation": 100,
+  "generations_run": 100,
+  "stop_reason": "reached the maximum of 100 generations",
+  "best_solution": [
+    -3.4364057496828973e-13,
+    -1.7295269269526932e-13
+  ],
+  "evaluations_actual": 5050,
+  "f_gen20": 0.005869478680143647,
+  "distance": 3.847096030450514e-13,
+  "comparison": [
+    {
+      "label": "clock, no cap",
+      "median": 5.515762513397249e-09,
+      "best": 5.946358960784437e-10,
+      "worst": 2.5799275570298943,
+      "valley": 39,
+      "success": 39,
+      "distinct": 3.0,
+      "evaluation_range": [
+        4350,
+        5050
+      ]
+    },
+    {
+      "label": "clock, cap 15",
+      "median": 6.760786153137133e-09,
+      "best": 1.5986931778400049e-09,
+      "worst": 2.579927557030001,
+      "valley": 39,
+      "success": 39,
+      "distinct": 9.0,
+      "evaluation_range": [
+        4200,
+        5050
+      ]
+    },
+    {
+      "label": "adaptive, no cap",
+      "median": 4.996003610813204e-13,
+      "best": 6.794564910705958e-14,
+      "worst": 2.3064661291982702e-11,
+      "valley": 40,
+      "success": 40,
+      "distinct": 8.0,
+      "evaluation_range": [
+        3700,
+        5050
+      ]
+    },
+    {
+      "label": "adaptive, cap 15",
+      "median": 1.6364687382974807e-12,
+      "best": 1.1057821325266559e-13,
+      "worst": 3.1370905873018273e-11,
+      "valley": 40,
+      "success": 40,
+      "distinct": 13.0,
+      "evaluation_range": [
+        4000,
+        5050
+      ]
+    }
+  ]
+}
